@@ -404,7 +404,7 @@ async def start(message: types.Message, state: FSMContext):
 
 @dp.message(GenForm.grade, F.text.in_(["9 класс", "10 класс", "11 класс"]))
 async def set_grade(message: types.Message, state: FSMContext):
-    grade = message.text[0]
+    grade = message.text.split()[0]   # теперь "9", "10", "11"
     await state.update_data(grade=grade)
     topics = list(GRADE_TOPICS[grade].keys())
     kb = [[types.KeyboardButton(text=t)] for t in topics]
