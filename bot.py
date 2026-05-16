@@ -16,7 +16,7 @@ from fpdf.enums import XPos, YPos
 
 # ---------- АВТОСКАЧИВАНИЕ ШРИФТА ----------
 FONTS_DIR = "fonts"
-FONT_PATH = 'DejaVuSans.ttf'
+FONT_PATH = "fonts/DejaVuSans.ttf"
 if not os.path.exists(FONT_PATH):
     os.makedirs(FONTS_DIR, exist_ok=True)
     print("Скачиваю шрифт DejaVuSans.ttf...")
