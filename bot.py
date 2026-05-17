@@ -4,6 +4,7 @@ import asyncio
 import logging
 import random
 import math
+import urllib.request
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -13,8 +14,18 @@ from aiogram.filters import Command
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
+# ---------- АВТОСКАЧИВАНИЕ ШРИФТА ----------
+FONTS_DIR = "fonts"
+FONT_PATH = os.path.join(FONTS_DIR, "DejaVuSans.ttf")
+if not os.path.exists(FONT_PATH):
+    os.makedirs(FONTS_DIR, exist_ok=True)
+    print("Скачиваю шрифт DejaVuSans.ttf...")
+    url = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf"
+    urllib.request.urlretrieve(url, FONT_PATH)
+    print("Шрифт скачан.")
+
 # ---------- НАСТРОЙКИ ----------
-TOKEN = "8755532322:AAFnYy-VY4MRh4E3DyzcB5zSaarQvXQjuSA"              # ← замените на свой
+TOKEN = "ВАШ_ТОКЕН_ЗДЕСЬ"  # ← замените на реальный токен
 TEMP_DIR = "temp_pdf"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
@@ -31,7 +42,7 @@ def shuffle(arr):
     random.shuffle(a)
     return a
 
-# Unicode-индексы
+# ---------- UNICODE-ИНДЕКСЫ ----------
 SUPER = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 SUB   = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
 
@@ -41,8 +52,10 @@ def super_num(n: int) -> str:
 def sub_num(n: int) -> str:
     return str(n).translate(SUB)
 
-# ---------- ГЕНЕРАТОРЫ ЗАДАЧ ----------
-# Логарифмы
+def sub_s(s: str) -> str:
+    return s.translate(SUB)
+
+# ---------- ГЕНЕРАТОРЫ ЗАДАЧ (старые) ----------
 def gen_log_simple():
     b = randchoice([2,3,4,5,6,7,8,9,10])
     e = randint(1,5)
@@ -77,7 +90,6 @@ def gen_log_eq():
 
 LOG_GENS = [gen_log_simple, gen_log_fraction, gen_log_sum, gen_log_diff, gen_log_power, gen_log_eq]
 
-# Тригонометрия
 def gen_trig_sin():
     vals = [('0','πn'), ('1','π/2 + 2πn'), ('-1','-π/2 + 2πn'), ('1/2','(-1)ⁿ·π/6 + πn')]
     r, a = randchoice(vals)
@@ -95,7 +107,6 @@ def gen_trig_sin2x():
 
 TRIG_GENS = [gen_trig_sin, gen_trig_cos, gen_trig_sin2x]
 
-# Производные
 def gen_deriv_poly():
     d = randint(2,5)
     c = randchoice([1,2,3,4,5])
@@ -114,7 +125,6 @@ def gen_deriv_sin():
 
 DERIV_GENS = [gen_deriv_poly, gen_deriv_sin]
 
-# Первообразные
 def gen_int_poly():
     n = randint(1,5)
     c = randchoice([1,2,3,4,5,6])
@@ -129,7 +139,6 @@ def gen_int_sin():
 
 INT_GENS = [gen_int_poly, gen_int_sin]
 
-# Геометрия: треугольники
 def gen_geom_heron():
     while True:
         a, b, c = randint(4,9), randint(4,9), randint(4,9)
@@ -149,7 +158,6 @@ def gen_geom_pythag():
 
 GEOM_GENS = [gen_geom_heron, gen_geom_pythag]
 
-# Вероятность и комбинаторика
 def gen_prob_urn():
     total = randint(10,15)
     white = randint(3, total-3)
@@ -170,7 +178,6 @@ def gen_comb_choice():
 
 PROB_GENS = [gen_prob_urn, gen_prob_dice_sum, gen_comb_choice]
 
-# Прогрессии
 def gen_arith_n():
     a1, d, n = randint(1,10), randint(1,5), randint(4,8)
     return {"text": f"Арифм. прогрессия: a{sub_num(1)}={a1}, d={d}.\nНайдите a{sub_num(n)}.",
@@ -191,56 +198,11 @@ def gen_geom_n():
 
 GEOM_PROG_GENS = [gen_geom_n]
 
-# Окружности
-def gen_circle_len():
-    r = randint(3,8)
-    return {"text": f"Найдите длину окружности радиуса {r}.",
-            "answer": f"C = 2π·{r} ≈ {2*math.pi*r:.1f}"}
-
-def gen_circle_area():
-    r = randint(3,8)
-    return {"text": f"Найдите площадь круга радиуса {r}.",
-            "answer": f"S = π·{r}² ≈ {math.pi*r*r:.1f}"}
-
-CIRCLE_GENS = [gen_circle_len, gen_circle_area]
-
-# Показательные уравнения
-def gen_exp_simple():
-    b = randchoice([2,3,5])
-    e = randint(2,5)
-    return {"text": f"Решите: {b}{super_num('x')} = {b**e}", "answer": str(e)}
-
-EXP_GENS = [gen_exp_simple]
-
-# Объёмы
-def gen_vol_cyl():
-    r = randint(2,5)
-    h = randint(4,10)
-    return {"text": f"Объём цилиндра: r={r} см, h={h} см.",
-            "answer": f"V = π·{r}²·{h} ≈ {math.pi*r*r*h:.1f} см³"}
-
-VOL_GENS = [gen_vol_cyl]
-
-# Квадратные уравнения (нормальный генератор)
-def gen_quadratic():
-    a = randint(1,3)
-    b = randint(-6,6)
-    c = randint(-6,6)
-    D = b*b - 4*a*c
-    if D < 0:
-        return {"text": f"Решите: {a}x² {'+' if b>=0 else ''}{b}x {'+' if c>=0 else ''}{c} = 0",
-                "answer": "корней нет"}
-    x1 = (-b + math.sqrt(D))/(2*a)
-    x2 = (-b - math.sqrt(D))/(2*a)
-    return {"text": f"Решите: {a}x² {'+' if b>=0 else ''}{b}x {'+' if c>=0 else ''}{c} = 0",
-            "answer": f"x₁={x1:.2f}, x₂={x2:.2f}"}
-
-QUAD_GENS = [gen_quadratic]
-
-# Собираем все темы по классам
 GRADE_TOPICS = {
     "9": {
-        "Квадратные уравнения": QUAD_GENS,
+        "Квадратные уравнения": [
+            lambda: {"text": f"Решите: x{super_num(2)} + {randint(-5,5)}x + {randint(-5,5)} = 0", "answer": "x₁,₂ = ..."}
+        ],
         "Арифметическая прогрессия": ARITH_GENS,
         "Геометрическая прогрессия": GEOM_PROG_GENS,
         "Геометрия: треугольники": GEOM_GENS,
@@ -249,8 +211,12 @@ GRADE_TOPICS = {
     "10": {
         "Тригонометрия": TRIG_GENS,
         "Логарифмы": LOG_GENS,
-        "Показательные уравнения": EXP_GENS,
-        "Геометрия: окружности": CIRCLE_GENS,
+        "Показательные уравнения": [
+            lambda: {"text": f"Решите: {randchoice([2,3,5])}{super_num('x')} = {randchoice([4,8,9,16])}", "answer": "x = ..."}
+        ],
+        "Геометрия: окружности": [
+            lambda: {"text": f"Найдите длину окружности радиуса {randint(3,8)}.", "answer": "2πr ≈ ..."}
+        ],
         "Теория вероятностей": PROB_GENS,
     },
     "11": {
@@ -260,245 +226,146 @@ GRADE_TOPICS = {
         "Тригонометрия": TRIG_GENS,
         "Геометрия: треугольники": GEOM_GENS,
         "Комбинаторика и вероятность": PROB_GENS,
-        "Объёмы тел": VOL_GENS,
+        "Объёмы тел": [
+            lambda: {"text": f"Объём цилиндра: r={randint(2,5)} см, h={randint(4,10)} см.", "answer": f"V = πr²h ≈ ..."}
+        ]
     }
 }
 
-# ---------- ТЕОРИЯ ----------
-THEORY = {
-    ("9", "Квадратные уравнения"): """
-Квадратное уравнение: ax² + bx + c = 0, a ≠ 0
-Дискриминант: D = b² – 4ac
-Если D > 0: два корня x₁,₂ = (–b ± √D) / (2a)
-Если D = 0: один корень x = –b / (2a)
-Если D < 0: действительных корней нет
-Теорема Виета: x₁ + x₂ = –b/a,  x₁·x₂ = c/a
-
-📘 Пример 1: x² – 5x + 6 = 0
-По Виету: x₁ + x₂ = 5, x₁·x₂ = 6 → x₁=2, x₂=3
-
-📘 Пример 2: 2x² – 7x + 3 = 0
-D = 49 – 24 = 25, √D = 5
-x₁ = (7+5)/4 = 3, x₂ = (7-5)/4 = 0.5
-
-📘 Пример 3: x² + 2x + 5 = 0
-D = 4 – 20 = –16 < 0 → корней нет
-""",
-    ("9", "Арифметическая прогрессия"): """
-Арифметическая прогрессия: aₙ = a₁ + (n-1)d
-Разность прогрессии d = aₙ₊₁ – aₙ
-Сумма n первых членов: Sₙ = (2a₁ + (n-1)d)·n/2 = (a₁ + aₙ)·n/2
-
-📘 Пример 1: a₁=3, d=4. Найти a₇.
-a₇ = 3 + 6·4 = 27
-
-📘 Пример 2: a₁=5, d=2. Найти сумму первых 10 членов.
-S₁₀ = (2·5 + 9·2)·10/2 = (10+18)·5 = 140
-
-📘 Пример 3: a₁=10, a₅=30. Найдите d.
-a₅ = a₁ + 4d → 30 = 10 + 4d → d = 5
-""",
-    ("9", "Геометрическая прогрессия"): """
-Геометрическая прогрессия: bₙ = b₁ · qⁿ⁻¹
-Знаменатель q = bₙ₊₁ / bₙ
-Сумма n первых членов: Sₙ = b₁(1 – qⁿ)/(1 – q), если q ≠ 1
-
-📘 Пример 1: b₁=2, q=3. Найти b₄.
-b₄ = 2 · 3³ = 54
-
-📘 Пример 2: b₁=3, q=2. Найти сумму первых 5 членов.
-S₅ = 3(1 – 2⁵)/(1 – 2) = 3(1 – 32)/(–1) = 93
-
-📘 Пример 3: b₁=5, b₃=20. Найдите q.
-b₃ = 5·q² = 20 → q² = 4, q = ±2
-""",
-    ("9", "Геометрия: треугольники"): """
-Площадь треугольника: ½·a·h, формула Герона (если даны три стороны)
-p = (a+b+c)/2, S = √(p(p-a)(p-b)(p-c))
-Теорема Пифагора (для прямоуг. треугольников): c² = a² + b²
-
-📘 Пример 1: стороны 3,4,5. Площадь?
-p = (3+4+5)/2 = 6, S = √(6·3·2·1) = √36 = 6
-
-📘 Пример 2: катеты 5 и 12. Гипотенуза?
-c² = 25 + 144 = 169 → c = 13
-
-📘 Пример 3: BC=7, AC=8, ∠C=60°. Площадь?
-S = ½·7·8·sin60° = 28·√3/2 ≈ 24.25
-""",
-    ("9", "Теория вероятностей"): """
-Вероятность события P(A) = m/n, где m – благоприятные исходы, n – все равновозможные.
-Правило умножения: если события независимы, P(A∩B) = P(A)·P(B)
-Сочетания: число способов выбрать k элементов из n: C(n,k) = n!/(k!(n-k)!)
-
-📘 Пример 1: В урне 5 белых и 10 чёрных. Вероятность вытащить белый?
-P = 5/15 = 1/3
-
-📘 Пример 2: Бросают два кубика. Вероятность суммы 8?
-Благоприятные: (2,6),(3,5),(4,4),(5,3),(6,2) – всего 5. Всего исходов 36. P = 5/36
-
-📘 Пример 3: Сколькими способами выбрать 2 дежурных из 10?
-C(10,2) = 10·9/2 = 45
-""",
-    ("10", "Тригонометрия"): """
-Основные уравнения:
-sin x = a → x = (-1)ⁿ arcsin a + πn, n∈Z
-cos x = a → x = ± arccos a + 2πn, n∈Z
-tg x = a → x = arctg a + πn, n∈Z
-Частные случаи: sin x = 0 → x = πn; sin x = 1 → x = π/2 + 2πn; cos x = 1 → x = 2πn
-
-📘 Пример 1: sin x = 1/2
-x = (-1)ⁿ·π/6 + πn, n∈Z
-
-📘 Пример 2: cos x = √2/2
-x = ±π/4 + 2πn, n∈Z
-
-📘 Пример 3: sin(2x) = 1/2
-2x = (-1)ⁿ·π/6 + πn → x = (-1)ⁿ·π/12 + πn/2, n∈Z
-""",
-    ("10", "Логарифмы"): """
-logₐ(b) = x ⇔ aˣ = b
-Свойства: logₐ(xy) = logₐx + logₐy
-logₐ(x/y) = logₐx – logₐy
-logₐ(xᵖ) = p·logₐx
-
-📘 Пример 1: log₂8 = 3, так как 2³ = 8
-📘 Пример 2: log₃(1/9) = –2, так как 3⁻² = 1/9
-📘 Пример 3: log₂4 + log₂8 = 2 + 3 = 5
-""",
-    ("10", "Показательные уравнения"): """
-Показательное уравнение: aˣ = b, решается логарифмированием или приведением к одному основанию.
-Если aˣ = aᵐ, то x = m
-
-📘 Пример 1: 2ˣ = 16 → x = 4
-📘 Пример 2: 5²ˣ = 125 → 5²ˣ = 5³ → 2x = 3 → x = 1.5
-📘 Пример 3: 3ˣ⁺¹ = 9ˣ → 3ˣ⁺¹ = 3²ˣ → x+1 = 2x → x = 1
-""",
-    ("10", "Геометрия: окружности"): """
-Длина окружности: C = 2πR
-Площадь круга: S = πR²
-Центральный угол равен дуге в градусах.
-
-📘 Пример 1: R=5 → C = 2π·5 ≈ 31.4
-📘 Пример 2: R=3 → S = π·9 ≈ 28.27
-📘 Пример 3: Длина окружности 62.8. Найдите радиус: R = 62.8/(2π) ≈ 10
-""",
-    ("10", "Теория вероятностей"): """
-Условная вероятность: P(A|B) = P(A∩B)/P(B)
-Формула полной вероятности.
-Сочетания и размещения (см. также 9 класс)
-
-📘 Пример 1: В коробке 3 белых и 7 чёрных, вынимают два шара подряд. Вероятность двух белых?
-P = 3/10 · 2/9 = 6/90 = 1/15 ≈ 0.067
-
-📘 Пример 2: Бросают монету дважды. Вероятность хотя бы одного орла?
-P(хотя бы один) = 1 – P(оба решки) = 1 – 1/4 = 3/4
-
-📘 Пример 3: Из 10 деталей 3 бракованные. Наугад берут 2. Вероятность, что обе годные?
-Число годных = 7, всего способов взять 2 из 10: C(10,2)=45, благоприятных C(7,2)=21. P=21/45=7/15≈0.467
-""",
-    ("11", "Производная"): """
-Производная функции f'(x) – скорость изменения функции.
-Правила:
-(xⁿ)' = n·xⁿ⁻¹
-(sin x)' = cos x, (cos x)' = –sin x
-(eˣ)' = eˣ, (ln x)' = 1/x
-Производная суммы: (u+v)' = u' + v'
-
-📘 Пример 1: f(x) = x³ + 2x² – 5x + 1
-f'(x) = 3x² + 4x – 5
-
-📘 Пример 2: f(x) = sin(3x) → f'(x) = 3·cos(3x)
-📘 Пример 3: f(x) = e²ˣ + ln(5x) → f'(x) = 2e²ˣ + 1/x
-""",
-    ("11", "Первообразная"): """
-Первообразная F(x) функции f(x): F'(x) = f(x).
-Основные формулы:
-∫ xⁿ dx = xⁿ⁺¹/(n+1) + C
-∫ sin x dx = –cos x + C
-∫ eˣ dx = eˣ + C
-Определённый интеграл: ∫ₐᵇ f(x)dx = F(b) – F(a)
-
-📘 Пример 1: ∫ 3x² dx = x³ + C
-📘 Пример 2: ∫ sin x dx = –cos x + C
-📘 Пример 3: ∫₀¹ 2x dx = [x²]₀¹ = 1 – 0 = 1
-""",
-    ("11", "Логарифмы"): """
-Логарифмы в 11 классе: углублённые свойства, логарифмирование и потенцирование уравнений.
-Натуральный логарифм: ln x = logₑ x, e ≈ 2.718.
-Производная логарифма: (ln x)' = 1/x; (logₐ x)' = 1/(x·ln a).
-
-📘 Пример 1: Решите: log₂(x) + log₂(x–2) = 3
-log₂(x(x–2)) = 3 → x²–2x = 2³ → x²–2x–8=0 → x=4 (x>2). Ответ: x=4.
-
-📘 Пример 2: Найдите производную: f(x) = ln(3x+1)
-f'(x) = 3/(3x+1)
-
-📘 Пример 3: Вычислите: log₅(25) + ln(e²) = 2 + 2 = 4
-""",
-    ("11", "Тригонометрия"): """
-Тригонометрия в 11 классе: формулы приведения, двойного угла, решение сложных уравнений.
-sin²x + cos²x = 1
-sin 2x = 2 sin x cos x
-cos 2x = cos²x – sin²x = 2cos²x – 1 = 1 – 2sin²x
-
-📘 Пример 1: Решите: cos 2x + sin x = 0
-1 – 2sin²x + sin x = 0 → 2sin²x – sin x – 1 = 0 → sin x = 1 или sin x = –1/2
-x = π/2 + 2πn, x = (–1)ⁿ⁺¹·π/6 + πn, n∈Z
-
-📘 Пример 2: Найдите производную: f(x) = tg x
-f'(x) = 1/cos²x
-
-📘 Пример 3: Вычислите: sin 75° = sin(45°+30°) = sin45cos30 + cos45sin30 = (√2/2)(√3/2)+(√2/2)(1/2) = (√6+√2)/4
-""",
-    ("11", "Геометрия: треугольники"): """
-Геометрия треугольников в 11 классе: теорема косинусов, синусов, площадь через синус.
-Теорема косинусов: c² = a² + b² – 2ab·cos C
-Теорема синусов: a/sin A = b/sin B = c/sin C = 2R
-Площадь: S = ½·ab·sin C
-
-📘 Пример 1: В треугольнике a=5, b=8, угол C=60°. Найти c.
-c² = 25+64–2·5·8·0.5 = 89–40 = 49 → c=7
-
-📘 Пример 2: a=6, sin A=0.6. Найти радиус описанной окружности.
-2R = a/sin A = 6/0.6 = 10 → R=5
-
-📘 Пример 3: Площадь треугольника со сторонами 7,8 и углом 30° между ними:
-S = ½·7·8·sin30° = 28·0.5 = 14
-""",
-    ("11", "Комбинаторика и вероятность"): """
-Повторение комбинаторики и сложная вероятность.
-Перестановки: n!
-Размещения: Aₙᵏ = n!/(n–k)!
-Сочетания: Cₙᵏ = n!/(k!(n–k)!)
-Формула Бернулли: Pₙ(k) = Cₙᵏ·pᵏ·(1–p)ⁿ⁻ᵏ
-
-📘 Пример 1: Сколько различных «слов» можно составить из букв слова «ЛИНИЯ»?
-Букв 5, повторяется И – 2 раза: 5!/2! = 60
-
-📘 Пример 2: Из 10 студентов выбирают 4 делегата. Сколькими способами?
-C(10,4) = 210
-
-📘 Пример 3: Монету бросают 5 раз. Вероятность трёх орлов?
-C(5,3)·(0.5)³·(0.5)² = 10·1/32 = 10/32 = 5/16
-""",
-    ("11", "Объёмы тел"): """
-Объём призмы: V = Sосн · h
-Объём цилиндра: V = πR²h
-Объём шара: V = 4/3 πR³
-Объём конуса: V = ⅓ πR²h
-
-📘 Пример 1: Цилиндр с R=2, h=5 → V = π·4·5 ≈ 62.8
-📘 Пример 2: Шар R=3 → V = 4/3 π·27 ≈ 113.1
-📘 Пример 3: Конус с радиусом 3 и высотой 4 → V = ⅓ π·9·4 = 12π ≈ 37.7
-""",
+# ---------- БАНК ЗАДАЧ ЕГЭ (прототипы) ----------
+PROBLEM_BANK = {
+    1: [
+        {"text": "В треугольнике ABC угол A равен 42°, угол C равен 108°. Найдите угол B. Ответ дайте в градусах.", "answer": "30"},
+        {"text": "В треугольнике ABC известно, что AC = BC, AB = 12, cos A = 0,8. Найдите высоту CH.", "answer": "9.6"},
+        {"text": "Площадь треугольника равна 36, а радиус вписанной окружности равен 3. Найдите периметр треугольника.", "answer": "24"},
+        {"text": "В треугольнике ABC сторона AB = 10, BC = 12, sin B = 0,6. Найдите площадь треугольника.", "answer": "36"},
+        {"text": "Около окружности радиусом 2 описан прямоугольный треугольник, гипотенуза которого равна 5. Найдите площадь этого треугольника.", "answer": "6"},
+        {"text": "В параллелограмме ABCD стороны AB = 6, AD = 8, sin угла A равен 0,5. Найдите площадь параллелограмма.", "answer": "24"},
+    ],
+    2: [
+        {"text": "Даны векторы a⃗(2;−3) и b⃗(−4;5). Найдите скалярное произведение a⃗ · b⃗.", "answer": "-23"},
+        {"text": "Найдите длину вектора c⃗ = a⃗ + 2b⃗, если a⃗(1;2), b⃗(−1;3).", "answer": "√65"},
+        {"text": "Даны точки A(1;2) и B(7;10). Найдите квадрат длины отрезка AB.", "answer": "100"},
+        {"text": "Векторы a⃗(−2;x) и b⃗(6;−9) коллинеарны. Найдите x.", "answer": "3"},
+        {"text": "Найдите косинус угла между векторами a⃗(3;4) и b⃗(5;−12).", "answer": "-33/65"},
+    ],
+    3: [
+        {"text": "Объём цилиндра равен 45π, а площадь боковой поверхности равна 30π. Найдите высоту цилиндра.", "answer": "6"},
+        {"text": "Шар вписан в цилиндр, высота которого равна 10. Найдите объём шара, делённый на π.", "answer": "500/3"},
+        {"text": "В прямоугольном параллелепипеде рёбра равны 3, 4 и 12. Найдите квадрат диагонали.", "answer": "169"},
+        {"text": "Конус и цилиндр имеют общее основание и общую высоту. Объём цилиндра равен 60. Найдите объём конуса.", "answer": "20"},
+        {"text": "В правильной треугольной призме сторона основания равна 6, а боковое ребро равно 8. Найдите объём призмы.", "answer": "72√3"},
+        {"text": "Площадь поверхности шара равна 100π. Найдите его радиус.", "answer": "5"},
+    ],
+    4: [
+        {"text": "В коробке 12 шоколадных конфет и 8 карамелек. Наугад берут одну конфету. Какова вероятность того, что она шоколадная?", "answer": "0.6"},
+        {"text": "Игральный кубик бросают дважды. Найдите вероятность того, что сумма выпавших очков равна 7.", "answer": "0.1667"},
+        {"text": "В лотерее 1000 билетов, из них 20 выигрышных. Найдите вероятность проигрыша при покупке одного билета.", "answer": "0.98"},
+        {"text": "Вероятность того, что батарейка бракованная, равна 0,03. Покупатель берёт две батарейки. Найдите вероятность того, что обе исправны.", "answer": "0.9409"},
+        {"text": "В группе 25 студентов: 10 знают английский язык, 12 — немецкий, 5 — оба языка. Найдите вероятность того, что случайно выбранный студент знает хотя бы один из этих языков.", "answer": "0.68"},
+    ],
+    5: [
+        {"text": "Стрелок попадает в мишень с вероятностью 0,7. Найдите вероятность того, что при трёх выстрелах он попадёт ровно два раза.", "answer": "0.441"},
+        {"text": "Два станка работают независимо. Вероятность отказа первого равна 0,1, второго — 0,2. Найдите вероятность того, что оба станка откажут.", "answer": "0.02"},
+        {"text": "В магазине три продавца. Вероятность того, что первый занят, равна 0,4, второй — 0,5, третий — 0,3. Найдите вероятность того, что все трое свободны одновременно (события независимы).", "answer": "0.21"},
+        {"text": "Вероятность перегорания лампы в течение года равна 0,2. Найдите вероятность того, что из трёх ламп ни одна не перегорит в течение года.", "answer": "0.512"},
+    ],
+    6: [
+        {"text": "Решите уравнение: log₂(x−1) + log₂(x+1) = 3. Если уравнение имеет более одного корня, в ответе запишите их сумму.", "answer": "5"},
+        {"text": "Решите уравнение: 2^(x+1) + 2^(x−1) = 20.", "answer": "3"},
+        {"text": "Решите уравнение: √(2x+5) = x+1. Если корней несколько, запишите больший из них.", "answer": "2"},
+        {"text": "Решите уравнение: sin(πx/6) = 0,5. В ответе укажите наименьший положительный корень.", "answer": "1"},
+        {"text": "Решите уравнение: lg(x²−17) = lg(5x−11).", "answer": "6"},
+        {"text": "Решите уравнение: 9^x − 4·3^x + 3 = 0.", "answer": "0;1"},
+    ],
+    7: [
+        {"text": "Найдите значение выражения: (√5−√2)² + 2√10.", "answer": "7"},
+        {"text": "Вычислите: log₃54 − log₃2.", "answer": "3"},
+        {"text": "Найдите sin 2α, если sin α = 0,6 и α ∈ (π/2; π).", "answer": "-0.96"},
+        {"text": "Найдите значение выражения: (5^(log₅7))².", "answer": "49"},
+        {"text": "Вычислите: 8^(2/3) + 27^(1/3).", "answer": "7"},
+        {"text": "Найдите tg α, если cos α = −0,6 и sin α > 0.", "answer": "-4/3"},
+    ],
+    8: [
+        {"text": "Найдите угловой коэффициент касательной к графику функции y = x³ − 2x² + 4 в точке x₀ = 1.", "answer": "-1"},
+        {"text": "Материальная точка движется по закону s(t) = 2t³ − 3t² + 5 (м). Найдите её скорость в момент времени t = 2 с.", "answer": "12"},
+        {"text": "На рисунке изображён график функции y = f(x) и касательная к нему в точке x₀ = 2. Касательная проходит через точки (2; 3) и (5; 9). Найдите f'(2).", "answer": "2"},
+        {"text": "Найдите точку минимума функции y = x³ − 6x² + 9x + 2.", "answer": "3"},
+        {"text": "Найдите наибольшее значение функции y = x³ − 3x² + 2 на отрезке [−1; 1].", "answer": "2"},
+    ],
+    9: [
+        {"text": "Температура нагревательного прибора меняется по закону T(t) = 200 − 150e^(−0,3t), где t — время в минутах. Найдите начальную температуру прибора (при t = 0).", "answer": "50"},
+        {"text": "Высота над землёй подброшенного вверх мяча меняется по закону h(t) = 12t − 5t² (м). Сколько секунд мяч будет находиться на высоте не менее 4 метров?", "answer": "1.6"},
+        {"text": "Стоимость проезда в такси вычисляется по формуле C = 120 + 30t, где t — время поездки в минутах. Сколько рублей стоит поездка длительностью 15 минут?", "answer": "570"},
+        {"text": "Мощность постоянного тока (в ваттах) вычисляется по формуле P = I²R, где I — сила тока в амперах, R — сопротивление в омах. Найдите мощность, если I = 4 А, R = 12 Ом.", "answer": "192"},
+        {"text": "Период колебаний математического маятника приближённо вычисляется по формуле T = 2π√(l/g). Найдите длину нити маятника, если T = 2 с, g = 10 м/с², π ≈ 3,14.", "answer": "1.014"},
+    ],
+    10: [
+        {"text": "Из пункта А в пункт В выехал автомобиль со скоростью 60 км/ч. Через 2 часа вслед за ним выехал второй автомобиль со скоростью 80 км/ч. Через сколько часов после своего выезда второй автомобиль догонит первый?", "answer": "6"},
+        {"text": "Два насоса, работая вместе, наполняют бассейн за 8 часов. Первый насос, работая отдельно, наполняет бассейн за 12 часов. За сколько часов наполнит бассейн второй насос, работая один?", "answer": "24"},
+        {"text": "Смешали 3 литра 10-процентного водного раствора соли и 2 литра 25-процентного раствора. Какова концентрация получившегося раствора? Ответ дайте в процентах.", "answer": "16"},
+        {"text": "Поезд длиной 250 метров проезжает мимо столба за 12,5 секунд. Найдите скорость поезда в километрах в час.", "answer": "72"},
+        {"text": "Катер прошёл 24 км по течению реки и 24 км против течения, затратив на весь путь 5 часов. Скорость течения реки равна 2 км/ч. Найдите собственную скорость катера (в км/ч).", "answer": "10"},
+    ],
+    11: [
+        {"text": "На рисунке изображён график линейной функции, проходящей через точки (0;4) и (6;−2). Найдите значение этой функции при x = 3.", "answer": "1"},
+        {"text": "График функции y = kx + b проходит через точки (−2;1) и (3;11). Найдите коэффициент k.", "answer": "2"},
+        {"text": "На рисунке изображена парабола y = ax² + bx + c с вершиной в точке (2;3) и проходящая через точку (0;7). Найдите коэффициент a.", "answer": "1"},
+        {"text": "График функции y = √x сдвинут вправо на 3 единицы и вверх на 2 единицы. Найдите значение полученной функции в точке x = 7.", "answer": "4"},
+    ],
+    12: [
+        {"text": "Найдите точку минимума функции y = x³ − 3x² − 9x + 5.", "answer": "3"},
+        {"text": "Найдите наибольшее значение функции y = −2x² + 8x − 3 на отрезке [0; 4].", "answer": "5"},
+        {"text": "Найдите наименьшее значение функции y = x² − 4x + 7 на отрезке [0; 5].", "answer": "3"},
+        {"text": "Найдите точку максимума функции y = −x³ + 3x² + 9x − 4 на отрезке [−2; 4].", "answer": "3"},
+        {"text": "По графику производной f'(x) на интервале (−5;5) определено, что она имеет ровно три точки пересечения с осью Ox. Сколько целых точек экстремума имеет функция f(x) на этом интервале?", "answer": "3"},
+    ],
+    13: [
+        {"text": "а) Решите уравнение 2sin²x + 3cos x = 0.\nб) Найдите все корни этого уравнения, принадлежащие отрезку [−π; π].", "answer": "±2π/3+2πk; -2π/3;2π/3"},
+        {"text": "а) Решите уравнение 4ˣ − 3·2ˣ⁺¹ + 8 = 0.\nб) Укажите корни, принадлежащие отрезку [1;4].", "answer": "1;2; 1;2"},
+    ],
+    14: [
+        {"text": "В правильной треугольной призме ABCA₁B₁C₁ сторона основания равна 4, боковое ребро равно 3. Найдите расстояние от вершины A₁ до прямой BC₁.", "answer": "√34"},
+        {"text": "В кубе ABCDA₁B₁C₁D₁ с ребром 2 найдите расстояние от точки B до плоскости A₁C₁D.", "answer": "2√3/3"},
+    ],
+    15: [
+        {"text": "Решите неравенство: log₂(x−1) ≤ 3 − log₂(x+1).", "answer": "(1;3]"},
+        {"text": "Решите неравенство: (x² − 4)/(x+3) ≥ 0.", "answer": "(-∞;-3)∪[-2;2]"},
+    ],
+    16: [
+        {"text": "Вкладчик положил в банк 200 000 рублей под 10% годовых. Проценты начисляются ежегодно и прибавляются к сумме вклада. Какую сумму он получит через 3 года? Ответ дайте в рублях.", "answer": "266200"},
+        {"text": "Кредит в размере 1 000 000 рублей взят на 2 года под 20% годовых. Выплата происходит равными платежами ежегодно. Найдите размер ежегодного платежа.", "answer": "720000"},
+        {"text": "Вкладчик разделил 500 000 рублей на две части и положил их в разные банки: первую часть под 8% годовых, вторую — под 12%. Через год общая сумма на обоих счетах составила 548 000 рублей. Какая сумма была положена под 12%?", "answer": "200000"},
+        {"text": "Банк выдал кредит 600 000 рублей на 3 года под 15% годовых. Погашение происходит равными платежами ежегодно. Определите размер ежегодного платежа.", "answer": "270000"},
+    ],
+    17: [
+        {"text": "В треугольнике ABC известно, что AB = 10, BC = 12, sin B = 0,8. Найдите длину медианы, проведённой к стороне AC.", "answer": "√73"},
+        {"text": "Окружность радиуса 5 касается сторон угла с вершиной A. Расстояние от точки A до центра окружности равно 13. Найдите длину хорды, соединяющей точки касания.", "answer": "120/13"},
+        {"text": "В трапеции ABCD с основаниями AD и BC, AD = 10, BC = 6, AB = CD = 5. Найдите площадь трапеции.", "answer": "24"},
+    ],
+    18: [
+        {"text": "Найдите все значения a, при которых уравнение x² + (a+2)x + a + 5 = 0 имеет два различных корня, больших −1.", "answer": "(-5;-4)∪(-4;-3)"},
+        {"text": "При каких значениях a неравенство ax² + 4x + a > 0 выполняется при всех действительных x?", "answer": "(2;+∞)"},
+        {"text": "Найдите все значения a, при которых уравнение |x−2| + |x+3| = a имеет ровно два различных решения.", "answer": "(5;+∞)"},
+        {"text": "При каких a система уравнений x²+y²=4, y=ax+1 имеет ровно два решения?", "answer": "(-√3/2; √3/2)"},
+        {"text": "Найдите все a, при которых функция f(x)=x³−3a²x+2 убывает на отрезке [0;2].", "answer": "[2;+∞)"},
+        {"text": "При каких значениях a уравнение sin x + a cos x = 2 имеет решения?", "answer": "[-√3;√3]"},
+    ],
+    19: [
+        {"text": "Найдите все натуральные числа n, при которых число n² + 5n + 6 является простым.", "answer": "1"},
+        {"text": "Найдите все трёхзначные числа, которые в 12 раз больше суммы своих цифр.", "answer": "108;180;270;360;450;540;630;720;810;900"},
+        {"text": "Произведение двух последовательных натуральных чисел на 11 больше их суммы. Найдите эти числа.", "answer": "4;5"},
+        {"text": "Найдите все пары целых чисел (x; y), для которых x² − y² = 21.", "answer": "(5;2),(5;-2),(-5;2),(-5;-2),(11;10),(11;-10),(-11;10),(-11;-10)"},
+    ]
 }
 
-# ---------- КЛАСС PDF ----------
+# ---------- КЛАСС PDF (дополнен) ----------
 class PDF(FPDF):
     def __init__(self):
         super().__init__('P', 'mm', 'A4')
         font_path = os.path.join('fonts', 'DejaVuSans.ttf')
+        if not os.path.exists(font_path):
+            raise FileNotFoundError(f"Шрифт не найден: {font_path}. Скачайте DejaVuSans.ttf и положите в папку fonts.")
         self.add_font('DejaVu', '', font_path, uni=True)
         self.add_font('DejaVu', 'B', font_path, uni=True)
         self.set_auto_page_break(False)
@@ -519,158 +386,172 @@ class PDF(FPDF):
         else:
             self.line(x1, y1, x2, y2)
 
-    def draw_triangle_heron(self, x, y, w, h, a, b, c):
-        self.set_line_width(0.4)
-        pts = [(x+w/2, y+2), (x+3, y+h-5), (x+w-3, y+h-5)]
-        self.polygon(pts, style='D')
-        self.set_font('DejaVu', '', 7)
-        self.text(x+w/2-1, y-1, 'C')
-        self.text(x-2, y+h-2, 'A')
-        self.text(x+w-2, y+h-2, 'B')
-        self.text(x+w/4, y+h/2+2, str(a))
-        self.text(x+3*w/4-4, y+h/2+2, str(b))
-        self.text(x+w/2-2, y+h-8, str(c))
+    def draw_grid(self, x, y, w, h, cols, rows):
+        """Рисует сетку клеток."""
+        self.set_line_width(0.1)
+        self.set_draw_color(180)
+        # вертикальные линии
+        for i in range(cols+1):
+            self.line(x + i*w/cols, y, x + i*w/cols, y+h)
+        # горизонтальные линии
+        for j in range(rows+1):
+            self.line(x, y + j*h/rows, x+w, y + j*h/rows)
 
-    def draw_triangle_right(self, x, y, w, h, leg1, leg2):
-        self.set_line_width(0.4)
-        pts = [(x+3, y+h-5), (x+3, y+3), (x+w-3, y+h-5)]
-        self.polygon(pts, style='D')
-        self.set_font('DejaVu', '', 7)
-        self.text(x+1, y+h-1, 'A')
-        self.text(x+w-2, y+h-1, 'B')
-        self.text(x+1, y-1, 'C')
-        self.text(x+w/2-4, y+h-8, str(leg1))
-        self.text(x-2, y+h/2, str(leg2))
-        self.text(x+w/2+2, y+h/2, '?')
-
-    def write_theory(self, text):
-        for line in text.strip().split('\n'):
-            line = line.rstrip()
-            if line.startswith('📘'):
-                self.ln(2)
-                self.set_font('DejaVu', 'B', 9)
-                self.cell(0, 5, line)
-                self.ln(5)
-                self.set_font('DejaVu', '', 8)
-            else:
-                self.set_font('DejaVu', '', 8)
-                self.multi_cell(0, 4.5, line)
-                # multi_cell уже делает ln, не дублируем
-        self.ln(5)
-
-def add_footer(pdf):
-    pdf.ln(5)
-    pdf.set_font('DejaVu', 'B', 10)
-    pdf.cell(0, 8, 'Готовься к ЕГЭ с ПРОФМАТ!', align='C')
-    pdf.ln(6)
-    pdf.set_font('DejaVu', '', 7)
-    pdf.cell(0, 5, 'Удачи на экзамене!', align='C')
-
-# ---------- ГЕНЕРАЦИЯ PDF (задания) ----------
-def generate_pdf(grade, topic, variants, problems, per_row, with_answers):
-    gens = GRADE_TOPICS[grade][topic]
-    vars_problems = []
-    vars_answers = []
-    for v in range(variants):
-        shuffled = shuffle(gens)
-        vp = []
-        va = []
-        for p in range(problems):
-            gen = shuffled[p % len(shuffled)]
-            res = gen()
-            vp.append(res)
-            va.append(res.get('answer', ''))
-        vars_problems.append(vp)
-        vars_answers.append(va)
-
+# ---------- ГЕНЕРАЦИЯ PDF С ВАРИАНТАМИ ЕГЭ ----------
+def generate_ege_variants_pdf(num_variants):
     pdf = PDF()
-    pdf.set_margin(5)
-    card_w = 92 if per_row == 2 else 190
-    card_h = 95
-
+    pdf.set_margin(10)
+    # Титульный лист
     pdf.add_page()
-    for idx in range(variants):
-        row = idx // per_row
-        col = idx % per_row
-        x0 = 10 + col * (card_w + 6)
-        y0 = 10 + row * (card_h + 8)
+    pdf.set_font('DejaVu', 'B', 16)
+    pdf.cell(0, 10, 'Создано сообществом ПРОФМАТ', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(5)
+    pdf.set_font('DejaVu', 'B', 14)
+    pdf.cell(0, 8, 'ЕДИНЫЙ ГОСУДАРСТВЕННЫЙ ЭКЗАМЕН', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font('DejaVu', 'B', 12)
+    pdf.cell(0, 8, 'ПО МАТЕМАТИКЕ (профильный уровень)', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(10)
+    pdf.set_font('DejaVu', '', 10)
+    pdf.cell(0, 6, f'Количество вариантов: {num_variants}', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(15)
+    pdf.set_font('DejaVu', '', 8)
+    pdf.multi_cell(0, 4, 'Ответы к заданиям 1–12 записываются в бланк ответов №1. Задания 13–19 требуют полного решения (бланк ответов №2).')
 
-        if y0 + card_h > 270:
-            pdf.add_page()
-            y0 = 10
-            row = 0
+    # Страница с инструкцией и справочными материалами
+    pdf.add_page()
+    pdf.set_font('DejaVu', 'B', 10)
+    pdf.cell(0, 6, 'Инструкция по выполнению работы', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font('DejaVu', '', 8)
+    pdf.multi_cell(0, 4, 'На выполнение работы отводится 3 часа 55 минут. Работа состоит из двух частей, включающих 19 заданий. Часть 1 содержит 12 заданий с кратким ответом. Часть 2 содержит 7 заданий с развёрнутым ответом.')
+    pdf.ln(3)
+    pdf.set_font('DejaVu', 'B', 10)
+    pdf.cell(0, 6, 'Справочные материалы', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font('DejaVu', '', 8)
+    # Алгебра
+    pdf.cell(0, 4, 'Алгебра:', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.multi_cell(0, 3.5, 'a⁰=1 (a≠0); a⁻ⁿ=1/aⁿ; aᵐ/ⁿ=ⁿ√aᵐ; logₐ1=0; logₐa=1; logₐ(xy)=logₐx+logₐy; logₐ(x/y)=logₐx-logₐy; logₐxᵏ=k logₐx; (a±b)²=a²±2ab+b²; a²-b²=(a-b)(a+b)')
+    pdf.ln(2)
+    pdf.cell(0, 4, 'Тригонометрия:', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.multi_cell(0, 3.5, 'sin²α+cos²α=1; tgα=sinα/cosα; ctgα=cosα/sinα; sin(α±β)=sinα cosβ ± cosα sinβ; cos(α±β)=cosα cosβ ∓ sinα sinβ; sin2α=2sinα cosα; cos2α=cos²α-sin²α=2cos²α-1=1-2sin²α')
+    pdf.ln(2)
+    pdf.cell(0, 4, 'Таблица значений:', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    # Таблица
+    col_w = 18
+    row_h = 5
+    x0 = pdf.get_x()
+    y0 = pdf.get_y()
+    angles = ['0°','30°','45°','60°','90°','180°','270°','360°']
+    sin_vals = ['0','1/2','√2/2','√3/2','1','0','-1','0']
+    cos_vals = ['1','√3/2','√2/2','1/2','0','-1','0','1']
+    tg_vals = ['0','√3/3','1','√3','—','0','—','0']
+    # Заголовок
+    pdf.set_font('DejaVu', 'B', 7)
+    pdf.cell(col_w, row_h, 'α', border=1, align='C')
+    for a in angles:
+        pdf.cell(col_w, row_h, a, border=1, align='C')
+    pdf.ln()
+    # sin
+    pdf.set_font('DejaVu', '', 7)
+    pdf.cell(col_w, row_h, 'sin', border=1, align='C')
+    for v in sin_vals:
+        pdf.cell(col_w, row_h, v, border=1, align='C')
+    pdf.ln()
+    # cos
+    pdf.cell(col_w, row_h, 'cos', border=1, align='C')
+    for v in cos_vals:
+        pdf.cell(col_w, row_h, v, border=1, align='C')
+    pdf.ln()
+    # tg
+    pdf.cell(col_w, row_h, 'tg', border=1, align='C')
+    for v in tg_vals:
+        pdf.cell(col_w, row_h, v, border=1, align='C')
+    pdf.ln(5)
 
-        # Рамка карточки
-        pdf.dashed_line(x0, y0, x0+card_w, y0)
-        pdf.dashed_line(x0+card_w, y0, x0+card_w, y0+card_h)
-        pdf.dashed_line(x0+card_w, y0+card_h, x0, y0+card_h)
-        pdf.dashed_line(x0, y0+card_h, x0, y0)
-
-        # Заголовок
-        pdf.set_font('DejaVu', 'B', 9)
-        pdf.set_xy(x0, y0+1)
-        pdf.cell(card_w, 5, f'Вариант {idx+1}', align='C')
-        pdf.set_font('DejaVu', '', 6)
-        pdf.set_xy(x0+2, y0+8)
-        pdf.cell(card_w-4, 3, 'Фамилия, Имя ___________________')
-        pdf.set_xy(x0+2, y0+12)
-        pdf.cell(card_w-4, 3, 'Класс _______  Дата ___________')
-
-        y_text = y0 + 18
-        for p_idx, prob in enumerate(vars_problems[idx]):
-            pdf.set_font('DejaVu', '', 7)
-            if 'draw' in prob and prob['draw'] == 'heron':
-                pdf.draw_triangle_heron(x0+card_w-30, y_text, 28, 20, prob['a'], prob['b'], prob['c'])
-            elif 'draw' in prob and prob['draw'] == 'pythag':
-                pdf.draw_triangle_right(x0+card_w-30, y_text, 28, 20, prob['a'], prob['b'])
-            pdf.set_xy(x0+2, y_text)
-            pdf.multi_cell(card_w-6, 3.5, f'{p_idx+1}. {prob["text"]}')
-            y_text = pdf.get_y() + 1
-
-        if col < per_row-1:
-            pdf.dashed_line(x0+card_w+3, y0, x0+card_w+3, y0+card_h)
-
-    # Ответы
-    if with_answers:
+    # Генерация каждого варианта
+    for var_idx in range(num_variants):
+        # Сбор заданий для варианта
+        tasks = []
+        for num in range(1, 20):
+            tasks.append(random.choice(PROBLEM_BANK[num]))
+        # Начало варианта с новой страницы
         pdf.add_page()
         pdf.set_font('DejaVu', 'B', 10)
-        pdf.cell(0, 8, f'Ответы – {topic}', align='C')
-        pdf.ln(10)
+        pdf.cell(0, 6, f'Вариант {var_idx+1}', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(3)
+
+        # Часть 1
+        pdf.set_font('DejaVu', 'B', 9)
+        pdf.cell(0, 5, 'Часть 1', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font('DejaVu', '', 8)
+        for i in range(12):
+            task = tasks[i]
+            pdf.cell(8, 4, f'{i+1}.', new_x=XPos.RIGHT, new_y=YPos.TOP)
+            pdf.multi_cell(170, 4, task['text'])
+            pdf.ln(1)
+
+        # Часть 2
+        pdf.ln(2)
+        pdf.set_font('DejaVu', 'B', 9)
+        pdf.cell(0, 5, 'Часть 2', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font('DejaVu', '', 8)
+        for i in range(12, 19):
+            task = tasks[i]
+            pdf.cell(8, 4, f'{i+1}.', new_x=XPos.RIGHT, new_y=YPos.TOP)
+            pdf.multi_cell(170, 4, task['text'])
+            pdf.ln(1)
+
+        # Бланк ответов №1
+        pdf.add_page()
+        pdf.set_font('DejaVu', 'B', 9)
+        pdf.cell(0, 6, 'Бланк ответов №1', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(3)
+        # Поля регион, предмет, вариант
         pdf.set_font('DejaVu', '', 7)
-        for v in range(variants):
-            pdf.cell(0, 5, f'Вариант {v+1}:', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            for p in range(problems):
-                pdf.cell(0, 4, f'{p+1}) {vars_answers[v][p]}', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(20, 5, 'Регион:', border=1)
+        pdf.cell(50, 5, '____________', border=1)
+        pdf.ln()
+        pdf.cell(20, 5, 'Предмет:', border=1)
+        pdf.cell(50, 5, 'Математика (профиль)', border=1)
+        pdf.ln()
+        pdf.cell(20, 5, 'Вариант:', border=1)
+        pdf.cell(50, 5, f'{var_idx+1}', border=1)
+        pdf.ln(5)
+        # Таблица ответов
+        pdf.set_font('DejaVu', 'B', 8)
+        pdf.cell(10, 6, '№', border=1, align='C')
+        pdf.cell(80, 6, 'Ответ', border=1, align='C')
+        pdf.ln()
+        pdf.set_font('DejaVu', '', 8)
+        for i in range(1, 13):
+            pdf.cell(10, 8, str(i), border=1, align='C')
+            pdf.cell(80, 8, '', border=1)
+            pdf.ln()
+
+        # Бланк ответов №2 (два листа клетки)
+        for b in [1, 2]:
+            pdf.add_page()
+            pdf.set_font('DejaVu', 'B', 9)
+            pdf.cell(0, 6, f'Бланк ответов №2 (лист {b})', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf.ln(3)
+            # Сетка
+            pdf.draw_grid(10, pdf.get_y(), 190, 250, 25, 40)
+            pdf.set_y(pdf.get_y() + 255)
+            pdf.set_font('DejaVu', '', 6)
+            pdf.cell(0, 4, 'Для записи решений заданий 13–19', align='C')
 
-    path = os.path.join(TEMP_DIR, f'kr_{grade}_{topic}.pdf')
+        # Черновик
+        pdf.add_page()
+        pdf.set_font('DejaVu', 'B', 9)
+        pdf.cell(0, 6, 'Черновик (часть 1)', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(3)
+        pdf.draw_grid(10, pdf.get_y(), 190, 260, 20, 36)
+
+    # Сохранение
+    path = os.path.join(TEMP_DIR, 'ege_variants.pdf')
     pdf.output(path)
     return path
 
-# ---------- ГЕНЕРАЦИЯ PDF (теория) ----------
-def generate_theory_pdf(grade, topic):
-    pdf = PDF()
-    pdf.add_page()
-    pdf.set_font('DejaVu', 'B', 14)
-    pdf.cell(0, 10, f'Теория: {topic}', align='C')
-    pdf.ln(6)
-    pdf.set_font('DejaVu', '', 8)
-    pdf.cell(0, 5, f'{grade} класс', align='C')
-    pdf.ln(8)
-
-    theory_text = THEORY.get((grade, topic), "Теория пока не добавлена.")
-    pdf.write_theory(theory_text)
-
-    add_footer(pdf)
-
-    path = os.path.join(TEMP_DIR, f'theory_{grade}_{topic}.pdf')
-    pdf.output(path)
-    return path
-
-# ---------- СОСТОЯНИЯ ----------
-class MainMenu(StatesGroup):
-    choose = State()
-
+# ---------- СОСТОЯНИЯ ДИАЛОГА ----------
 class GenForm(StatesGroup):
     grade = State()
     topic = State()
@@ -679,31 +560,24 @@ class GenForm(StatesGroup):
     per_row = State()
     answers = State()
 
-class TheoryForm(StatesGroup):
-    grade = State()
-    topic = State()
+class EGEForm(StatesGroup):
+    num_variants = State()
 
 # ---------- ОБРАБОТЧИКИ ----------
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     await state.clear()
     kb = [
-        [types.KeyboardButton(text="📝 Задания"), types.KeyboardButton(text="📚 Теория")]
+        [types.KeyboardButton(text="9 класс"), types.KeyboardButton(text="10 класс"), types.KeyboardButton(text="11 класс")],
+        [types.KeyboardButton(text="🎲 Вариант ЕГЭ")]
     ]
-    await message.answer("👋 Выберите раздел:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
-    await state.set_state(MainMenu.choose)
-
-# Задания
-@dp.message(MainMenu.choose, F.text == "📝 Задания")
-async def tasks_menu(message: types.Message, state: FSMContext):
-    await state.clear()
-    kb = [[types.KeyboardButton(text="9 класс"), types.KeyboardButton(text="10 класс"), types.KeyboardButton(text="11 класс")]]
-    await message.answer("👋 Выберите класс:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
+    await message.answer("👋 Выберите действие:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
     await state.set_state(GenForm.grade)
 
+# Обработчик выбора класса или ЕГЭ
 @dp.message(GenForm.grade, F.text.in_(["9 класс", "10 класс", "11 класс"]))
 async def set_grade(message: types.Message, state: FSMContext):
-    grade = message.text.split()[0]
+    grade = message.text[0]
     await state.update_data(grade=grade)
     topics = list(GRADE_TOPICS[grade].keys())
     kb = [[types.KeyboardButton(text=t)] for t in topics]
@@ -711,6 +585,30 @@ async def set_grade(message: types.Message, state: FSMContext):
     await message.answer("📚 Выберите тему:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
     await state.set_state(GenForm.topic)
 
+@dp.message(GenForm.grade, F.text == "🎲 Вариант ЕГЭ")
+async def ege_start(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("📋 Сколько вариантов сгенерировать? (введите число от 1 до 4)", reply_markup=types.ReplyKeyboardRemove())
+    await state.set_state(EGEForm.num_variants)
+
+@dp.message(EGEForm.num_variants)
+async def ege_num_variants(message: types.Message, state: FSMContext):
+    if not message.text.isdigit() or not (1 <= int(message.text) <= 4):
+        return await message.answer("Введите число от 1 до 4.")
+    num = int(message.text)
+    await state.clear()
+    await message.answer("⏳ Генерирую варианты ЕГЭ...")
+    try:
+        pdf_path = generate_ege_variants_pdf(num)
+        await message.answer_document(FSInputFile(pdf_path), caption="✅ Ваши варианты ЕГЭ готовы!")
+        os.remove(pdf_path)
+    except Exception as e:
+        logging.error(e)
+        await message.answer("⚠️ Ошибка генерации. Попробуйте снова.")
+    finally:
+        await message.answer("Для новой работы нажмите /start", reply_markup=types.ReplyKeyboardRemove())
+
+# Старые обработчики (выбор темы, параметры генерации контрольной)
 @dp.message(GenForm.topic, F.text.in_(sum([list(GRADE_TOPICS[g].keys()) for g in GRADE_TOPICS], [])))
 async def set_topic(message: types.Message, state: FSMContext):
     await state.update_data(topic=message.text)
@@ -731,7 +629,7 @@ async def set_problems(message: types.Message, state: FSMContext):
         return await message.answer("Введите число от 1 до 12.")
     await state.update_data(problems=int(message.text))
     kb = [[types.KeyboardButton(text="2 в ряд"), types.KeyboardButton(text="1 в ряд")]]
-    await message.answer("📄 Расположение вариантов:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
+    await message.answer("📄 Расположение вариантов на листе:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
     await state.set_state(GenForm.per_row)
 
 @dp.message(GenForm.per_row, F.text.in_(["2 в ряд", "1 в ряд"]))
@@ -749,57 +647,23 @@ async def set_answers(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("⏳ Генерирую контрольную...")
     try:
-        pdf_path = generate_pdf(data['grade'], data['topic'], data['variants'], data['problems'], data['per_row'], with_answers)
-        await message.answer_document(FSInputFile(pdf_path), caption="✅ Контрольная готова! Можно печатать.")
+        pdf_path = generate_pdf(
+            data['grade'], data['topic'], data['variants'],
+            data['problems'], data['per_row'], with_answers
+        )
+        await message.answer_document(FSInputFile(pdf_path), caption="✅ Ваша контрольная готова! Можно сразу печатать.")
         os.remove(pdf_path)
     except Exception as e:
         logging.error(e)
-        await message.answer("⚠️ Ошибка генерации.")
+        await message.answer("⚠️ Ошибка генерации. Попробуйте снова.")
     finally:
         await message.answer("Для новой работы нажмите /start", reply_markup=types.ReplyKeyboardRemove())
 
-# Теория
-@dp.message(MainMenu.choose, F.text == "📚 Теория")
-async def theory_menu(message: types.Message, state: FSMContext):
-    await state.clear()
-    kb = [[types.KeyboardButton(text="9 класс"), types.KeyboardButton(text="10 класс"), types.KeyboardButton(text="11 класс")]]
-    await message.answer("🎓 Выберите класс для теории:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
-    await state.set_state(TheoryForm.grade)
-
-@dp.message(TheoryForm.grade, F.text.in_(["9 класс", "10 класс", "11 класс"]))
-async def theory_grade(message: types.Message, state: FSMContext):
-    grade = message.text.split()[0]
-    await state.update_data(grade=grade)
-    topics = list(GRADE_TOPICS[grade].keys())
-    kb = [[types.KeyboardButton(text=t)] for t in topics]
-    kb.append([types.KeyboardButton(text="⬅️ Назад")])
-    await message.answer("📚 Выберите тему:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
-    await state.set_state(TheoryForm.topic)
-
-@dp.message(TheoryForm.topic, F.text.in_(sum([list(GRADE_TOPICS[g].keys()) for g in GRADE_TOPICS], [])))
-async def theory_topic(message: types.Message, state: FSMContext):
-    topic = message.text
-    data = await state.get_data()
-    grade = data['grade']
-    await state.clear()
-    await message.answer("⏳ Готовлю теорию...")
-    try:
-        pdf_path = generate_theory_pdf(grade, topic)
-        await message.answer_document(FSInputFile(pdf_path), caption="✅ Теория готова!")
-        os.remove(pdf_path)
-    except Exception as e:
-        logging.error(e)
-        await message.answer("⚠️ Ошибка генерации теории.")
-    finally:
-        await message.answer("Для возврата нажмите /start", reply_markup=types.ReplyKeyboardRemove())
-
-# Кнопка Назад
 @dp.message(F.text == "⬅️ Назад")
-async def back_to_menu(message: types.Message, state: FSMContext):
+async def back(message: types.Message, state: FSMContext):
     await state.clear()
     await start(message, state)
 
-# Быстрая команда
 @dp.message(Command("quick"))
 async def quick_gen(message: types.Message, state: FSMContext):
     try:
