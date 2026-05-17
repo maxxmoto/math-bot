@@ -27,7 +27,7 @@ if not os.path.exists(FONT_PATH):
 # ---------- НАСТРОЙКИ ----------
 TOKEN = "8755532322:AAFnYy-VY4MRh4E3DyzcB5zSaarQvXQjuSA"          # ← замените на реальный токен
 TEMP_DIR = "temp_pdf"
-MATH_DIR = "math"                   # папка с теорией
+MATH_DIR = "."                   # папка с теорией
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # ---------- ИНИЦИАЛИЗАЦИЯ ----------
