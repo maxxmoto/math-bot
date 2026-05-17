@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
@@ -25,7 +25,7 @@ if not os.path.exists(FONT_PATH):
     print("Шрифт скачан.")
 
 # ---------- НАСТРОЙКИ ----------
-TOKEN = "8755532322:AAFnYy-VY4MRh4E3DyzcB5zSaarQvXQjuSA"  # ← замените на реальный токен
+TOKEN = "ВАШ_ТОКЕН_ЗДЕСЬ"          # ← замените на реальный токен
 TEMP_DIR = "temp_pdf"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
@@ -359,13 +359,13 @@ PROBLEM_BANK = {
     ]
 }
 
-# ---------- КЛАСС PDF (дополнен) ----------
+# ---------- КЛАСС PDF ----------
 class PDF(FPDF):
     def __init__(self):
         super().__init__('P', 'mm', 'A4')
         font_path = os.path.join('fonts', 'DejaVuSans.ttf')
         if not os.path.exists(font_path):
-            raise FileNotFoundError(f"Шрифт не найден: {font_path}. Скачайте DejaVuSans.ttf и положите в папку fonts.")
+            raise FileNotFoundError(f"Шрифт не найден: {font_path}.")
         self.add_font('DejaVu', '', font_path, uni=True)
         self.add_font('DejaVu', 'B', font_path, uni=True)
         self.set_auto_page_break(False)
@@ -387,21 +387,93 @@ class PDF(FPDF):
             self.line(x1, y1, x2, y2)
 
     def draw_grid(self, x, y, w, h, cols, rows):
-        """Рисует сетку клеток."""
         self.set_line_width(0.1)
         self.set_draw_color(180)
-        # вертикальные линии
         for i in range(cols+1):
             self.line(x + i*w/cols, y, x + i*w/cols, y+h)
-        # горизонтальные линии
         for j in range(rows+1):
             self.line(x, y + j*h/rows, x+w, y + j*h/rows)
 
-# ---------- ГЕНЕРАЦИЯ PDF С ВАРИАНТАМИ ЕГЭ ----------
+# ---------- ГЕНЕРАЦИЯ PDF КОНТРОЛЬНОЙ (старая) ----------
+def generate_pdf(grade: str, topic: str, variants: int, problems: int, per_row: int, with_answers: bool):
+    gens = GRADE_TOPICS[grade][topic]
+    vars_problems = []
+    vars_answers = []
+    for v in range(variants):
+        shuffled = shuffle(gens)
+        vp = []
+        va = []
+        for p in range(problems):
+            gen = shuffled[p % len(shuffled)]
+            res = gen()
+            vp.append(res)
+            va.append(res.get('answer', ''))
+        vars_problems.append(vp)
+        vars_answers.append(va)
+
+    pdf = PDF()
+    pdf.set_margin(5)
+    card_w = (190 if per_row == 1 else 92)
+    card_h = 95
+    cols = per_row
+    rows = (variants + cols - 1) // cols if cols else 1
+
+    pdf.add_page()
+    for idx in range(variants):
+        row = idx // cols
+        col = idx % cols
+        x0 = 10 + col * (card_w + 6)
+        y0 = 10 + row * (card_h + 8)
+        if y0 + card_h > 280:
+            pdf.add_page()
+            y0 = 10
+        pdf.dashed_line(x0, y0, x0+card_w, y0)
+        pdf.dashed_line(x0+card_w, y0, x0+card_w, y0+card_h)
+        pdf.dashed_line(x0+card_w, y0+card_h, x0, y0+card_h)
+        pdf.dashed_line(x0, y0+card_h, x0, y0)
+        pdf.set_font('DejaVu', 'B', 9)
+        pdf.set_xy(x0, y0+1)
+        pdf.cell(card_w, 5, f'Вариант {idx+1}', align='C')
+        pdf.set_font('DejaVu', '', 6)
+        pdf.set_xy(x0+2, y0+8)
+        pdf.cell(card_w-4, 3, 'Фамилия, Имя ___________________')
+        pdf.set_xy(x0+2, y0+12)
+        pdf.cell(card_w-4, 3, 'Класс _______  Дата ___________')
+        y_text = y0 + 18
+        for p_idx, prob in enumerate(vars_problems[idx]):
+            pdf.set_font('DejaVu', '', 7)
+            pdf.set_xy(x0+2, y_text)
+            if 'draw' in prob and prob['draw'] == 'heron':
+                pdf.draw_triangle_heron(x0+card_w-30, y_text, 28, 20, prob['a'], prob['b'], prob['c'])
+            elif 'draw' in prob and prob['draw'] == 'pythag':
+                pdf.draw_triangle_right(x0+card_w-30, y_text, 28, 20, prob['a'], prob['b'])
+            pdf.multi_cell(card_w-6, 3.5, f'{p_idx+1}. {prob["text"]}')
+            y_text = pdf.get_y() + 1
+        if col < cols-1:
+            pdf.dashed_line(x0+card_w+3, y0, x0+card_w+3, y0+card_h)
+        if row < rows-1:
+            pdf.dashed_line(x0, y0+card_h+3, x0+card_w, y0+card_h+3)
+
+    if with_answers:
+        pdf.add_page()
+        pdf.set_font('DejaVu', 'B', 10)
+        pdf.cell(0, 8, f'Ответы – {topic}', align='C')
+        pdf.ln(10)
+        pdf.set_font('DejaVu', '', 7)
+        for v in range(variants):
+            pdf.cell(0, 5, f'Вариант {v+1}:', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            for p in range(problems):
+                pdf.cell(0, 4, f'{p+1}) {vars_answers[v][p]}', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.ln(3)
+    path = os.path.join(TEMP_DIR, f'kr_{grade}_{topic}.pdf')
+    pdf.output(path)
+    return path
+
+# ---------- ГЕНЕРАЦИЯ PDF ВАРИАНТОВ ЕГЭ ----------
 def generate_ege_variants_pdf(num_variants):
     pdf = PDF()
     pdf.set_margin(10)
-    # Титульный лист
+    # Титул
     pdf.add_page()
     pdf.set_font('DejaVu', 'B', 16)
     pdf.cell(0, 10, 'Создано сообществом ПРОФМАТ', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -416,8 +488,7 @@ def generate_ege_variants_pdf(num_variants):
     pdf.ln(15)
     pdf.set_font('DejaVu', '', 8)
     pdf.multi_cell(0, 4, 'Ответы к заданиям 1–12 записываются в бланк ответов №1. Задания 13–19 требуют полного решения (бланк ответов №2).')
-
-    # Страница с инструкцией и справочными материалами
+    # Инструкция и справочные
     pdf.add_page()
     pdf.set_font('DejaVu', 'B', 10)
     pdf.cell(0, 6, 'Инструкция по выполнению работы', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -427,7 +498,6 @@ def generate_ege_variants_pdf(num_variants):
     pdf.set_font('DejaVu', 'B', 10)
     pdf.cell(0, 6, 'Справочные материалы', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font('DejaVu', '', 8)
-    # Алгебра
     pdf.cell(0, 4, 'Алгебра:', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.multi_cell(0, 3.5, 'a⁰=1 (a≠0); a⁻ⁿ=1/aⁿ; aᵐ/ⁿ=ⁿ√aᵐ; logₐ1=0; logₐa=1; logₐ(xy)=logₐx+logₐy; logₐ(x/y)=logₐx-logₐy; logₐxᵏ=k logₐx; (a±b)²=a²±2ab+b²; a²-b²=(a-b)(a+b)')
     pdf.ln(2)
@@ -435,51 +505,38 @@ def generate_ege_variants_pdf(num_variants):
     pdf.multi_cell(0, 3.5, 'sin²α+cos²α=1; tgα=sinα/cosα; ctgα=cosα/sinα; sin(α±β)=sinα cosβ ± cosα sinβ; cos(α±β)=cosα cosβ ∓ sinα sinβ; sin2α=2sinα cosα; cos2α=cos²α-sin²α=2cos²α-1=1-2sin²α')
     pdf.ln(2)
     pdf.cell(0, 4, 'Таблица значений:', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    # Таблица
     col_w = 18
     row_h = 5
-    x0 = pdf.get_x()
-    y0 = pdf.get_y()
     angles = ['0°','30°','45°','60°','90°','180°','270°','360°']
     sin_vals = ['0','1/2','√2/2','√3/2','1','0','-1','0']
     cos_vals = ['1','√3/2','√2/2','1/2','0','-1','0','1']
     tg_vals = ['0','√3/3','1','√3','—','0','—','0']
-    # Заголовок
     pdf.set_font('DejaVu', 'B', 7)
     pdf.cell(col_w, row_h, 'α', border=1, align='C')
-    for a in angles:
-        pdf.cell(col_w, row_h, a, border=1, align='C')
+    for a in angles: pdf.cell(col_w, row_h, a, border=1, align='C')
     pdf.ln()
-    # sin
     pdf.set_font('DejaVu', '', 7)
     pdf.cell(col_w, row_h, 'sin', border=1, align='C')
-    for v in sin_vals:
-        pdf.cell(col_w, row_h, v, border=1, align='C')
+    for v in sin_vals: pdf.cell(col_w, row_h, v, border=1, align='C')
     pdf.ln()
-    # cos
     pdf.cell(col_w, row_h, 'cos', border=1, align='C')
-    for v in cos_vals:
-        pdf.cell(col_w, row_h, v, border=1, align='C')
+    for v in cos_vals: pdf.cell(col_w, row_h, v, border=1, align='C')
     pdf.ln()
-    # tg
     pdf.cell(col_w, row_h, 'tg', border=1, align='C')
-    for v in tg_vals:
-        pdf.cell(col_w, row_h, v, border=1, align='C')
+    for v in tg_vals: pdf.cell(col_w, row_h, v, border=1, align='C')
     pdf.ln(5)
 
-    # Генерация каждого варианта
+    all_tasks = []  # собираем ответы для каждого варианта
     for var_idx in range(num_variants):
-        # Сбор заданий для варианта
         tasks = []
         for num in range(1, 20):
             tasks.append(random.choice(PROBLEM_BANK[num]))
-        # Начало варианта с новой страницы
+        all_tasks.append(tasks)
+
         pdf.add_page()
         pdf.set_font('DejaVu', 'B', 10)
         pdf.cell(0, 6, f'Вариант {var_idx+1}', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.ln(3)
-
-        # Часть 1
         pdf.set_font('DejaVu', 'B', 9)
         pdf.cell(0, 5, 'Часть 1', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_font('DejaVu', '', 8)
@@ -488,8 +545,6 @@ def generate_ege_variants_pdf(num_variants):
             pdf.cell(8, 4, f'{i+1}.', new_x=XPos.RIGHT, new_y=YPos.TOP)
             pdf.multi_cell(170, 4, task['text'])
             pdf.ln(1)
-
-        # Часть 2
         pdf.ln(2)
         pdf.set_font('DejaVu', 'B', 9)
         pdf.cell(0, 5, 'Часть 2', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -505,7 +560,6 @@ def generate_ege_variants_pdf(num_variants):
         pdf.set_font('DejaVu', 'B', 9)
         pdf.cell(0, 6, 'Бланк ответов №1', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.ln(3)
-        # Поля регион, предмет, вариант
         pdf.set_font('DejaVu', '', 7)
         pdf.cell(20, 5, 'Регион:', border=1)
         pdf.cell(50, 5, '____________', border=1)
@@ -516,7 +570,6 @@ def generate_ege_variants_pdf(num_variants):
         pdf.cell(20, 5, 'Вариант:', border=1)
         pdf.cell(50, 5, f'{var_idx+1}', border=1)
         pdf.ln(5)
-        # Таблица ответов
         pdf.set_font('DejaVu', 'B', 8)
         pdf.cell(10, 6, '№', border=1, align='C')
         pdf.cell(80, 6, 'Ответ', border=1, align='C')
@@ -527,13 +580,12 @@ def generate_ege_variants_pdf(num_variants):
             pdf.cell(80, 8, '', border=1)
             pdf.ln()
 
-        # Бланк ответов №2 (два листа клетки)
+        # Бланки ответов №2
         for b in [1, 2]:
             pdf.add_page()
             pdf.set_font('DejaVu', 'B', 9)
             pdf.cell(0, 6, f'Бланк ответов №2 (лист {b})', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf.ln(3)
-            # Сетка
             pdf.draw_grid(10, pdf.get_y(), 190, 250, 25, 40)
             pdf.set_y(pdf.get_y() + 255)
             pdf.set_font('DejaVu', '', 6)
@@ -546,7 +598,21 @@ def generate_ege_variants_pdf(num_variants):
         pdf.ln(3)
         pdf.draw_grid(10, pdf.get_y(), 190, 260, 20, 36)
 
-    # Сохранение
+    # Страница с ответами
+    pdf.add_page()
+    pdf.set_font('DejaVu', 'B', 12)
+    pdf.cell(0, 10, 'Ответы к вариантам', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(5)
+    for var_idx, tasks in enumerate(all_tasks):
+        pdf.set_font('DejaVu', 'B', 9)
+        pdf.cell(0, 6, f'Вариант {var_idx+1}', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font('DejaVu', '', 8)
+        for i in range(19):
+            task = tasks[i]
+            pdf.cell(10, 5, f'{i+1}.', new_x=XPos.RIGHT, new_y=YPos.TOP)
+            pdf.cell(0, 5, task['answer'], new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(3)
+
     path = os.path.join(TEMP_DIR, 'ege_variants.pdf')
     pdf.output(path)
     return path
@@ -563,33 +629,49 @@ class GenForm(StatesGroup):
 class EGEForm(StatesGroup):
     num_variants = State()
 
+# ---------- КЛАВИАТУРЫ ----------
+def main_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="9 класс"), KeyboardButton(text="10 класс"), KeyboardButton(text="11 класс")],
+            [KeyboardButton(text="🎲 Вариант ЕГЭ")]
+        ],
+        resize_keyboard=True
+    )
+
+def back_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="⬅️ Назад")]],
+        resize_keyboard=True
+    )
+
 # ---------- ОБРАБОТЧИКИ ----------
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     await state.clear()
-    kb = [
-        [types.KeyboardButton(text="9 класс"), types.KeyboardButton(text="10 класс"), types.KeyboardButton(text="11 класс")],
-        [types.KeyboardButton(text="🎲 Вариант ЕГЭ")]
-    ]
-    await message.answer("👋 Выберите действие:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
+    await message.answer("👋 Выберите действие:", reply_markup=main_kb())
     await state.set_state(GenForm.grade)
 
-# Обработчик выбора класса или ЕГЭ
 @dp.message(GenForm.grade, F.text.in_(["9 класс", "10 класс", "11 класс"]))
 async def set_grade(message: types.Message, state: FSMContext):
-    grade = message.text[0]
+    grade = message.text.split()[0]   # "9", "10", "11"
     await state.update_data(grade=grade)
     topics = list(GRADE_TOPICS[grade].keys())
-    kb = [[types.KeyboardButton(text=t)] for t in topics]
-    kb.append([types.KeyboardButton(text="⬅️ Назад")])
-    await message.answer("📚 Выберите тему:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
+    kb = [[KeyboardButton(text=t)] for t in topics]
+    kb.append([KeyboardButton(text="⬅️ Назад")])
+    await message.answer("📚 Выберите тему:", reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
     await state.set_state(GenForm.topic)
 
 @dp.message(GenForm.grade, F.text == "🎲 Вариант ЕГЭ")
 async def ege_start(message: types.Message, state: FSMContext):
     await state.clear()
-    await message.answer("📋 Сколько вариантов сгенерировать? (введите число от 1 до 4)", reply_markup=types.ReplyKeyboardRemove())
+    await message.answer("📋 Сколько вариантов сгенерировать? (введите число от 1 до 4)\nИли нажмите «⬅️ Назад»", reply_markup=back_kb())
     await state.set_state(EGEForm.num_variants)
+
+@dp.message(EGEForm.num_variants, F.text == "⬅️ Назад")
+async def ege_back(message: types.Message, state: FSMContext):
+    await state.clear()
+    await start(message, state)
 
 @dp.message(EGEForm.num_variants)
 async def ege_num_variants(message: types.Message, state: FSMContext):
@@ -597,55 +679,91 @@ async def ege_num_variants(message: types.Message, state: FSMContext):
         return await message.answer("Введите число от 1 до 4.")
     num = int(message.text)
     await state.clear()
-    await message.answer("⏳ Генерирую варианты ЕГЭ...")
+    msg = await message.answer("⏳ Генерирую варианты ЕГЭ...")
     try:
         pdf_path = generate_ege_variants_pdf(num)
-        await message.answer_document(FSInputFile(pdf_path), caption="✅ Ваши варианты ЕГЭ готовы!")
+        await message.answer_document(FSInputFile(pdf_path), caption="✅ Ваши варианты ЕГЭ готовы! Ответы — в конце файла.")
         os.remove(pdf_path)
     except Exception as e:
         logging.error(e)
         await message.answer("⚠️ Ошибка генерации. Попробуйте снова.")
     finally:
-        await message.answer("Для новой работы нажмите /start", reply_markup=types.ReplyKeyboardRemove())
+        await message.answer("Выберите действие:", reply_markup=main_kb())
+        await state.set_state(GenForm.grade)   # возвращаемся в главное меню
 
-# Старые обработчики (выбор темы, параметры генерации контрольной)
+# Обработчики тем и параметров контрольной
 @dp.message(GenForm.topic, F.text.in_(sum([list(GRADE_TOPICS[g].keys()) for g in GRADE_TOPICS], [])))
 async def set_topic(message: types.Message, state: FSMContext):
     await state.update_data(topic=message.text)
-    await message.answer("📋 Сколько вариантов? (введите число от 1 до 8)", reply_markup=types.ReplyKeyboardRemove())
+    await message.answer("📋 Сколько вариантов? (введите число от 1 до 8)\nИли нажмите «⬅️ Назад»", reply_markup=back_kb())
     await state.set_state(GenForm.variants)
+
+@dp.message(GenForm.topic, F.text == "⬅️ Назад")
+async def topic_back(message: types.Message, state: FSMContext):
+    await state.clear()
+    await start(message, state)
+
+@dp.message(GenForm.variants, F.text == "⬅️ Назад")
+async def variants_back(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    grade = data.get('grade')
+    if grade:
+        topics = list(GRADE_TOPICS[grade].keys())
+        kb = [[KeyboardButton(text=t)] for t in topics]
+        kb.append([KeyboardButton(text="⬅️ Назад")])
+        await message.answer("📚 Выберите тему:", reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
+        await state.set_state(GenForm.topic)
+    else:
+        await state.clear()
+        await start(message, state)
 
 @dp.message(GenForm.variants)
 async def set_variants(message: types.Message, state: FSMContext):
     if not message.text.isdigit() or not (1 <= int(message.text) <= 8):
         return await message.answer("Введите число от 1 до 8.")
     await state.update_data(variants=int(message.text))
-    await message.answer("📝 Сколько заданий в варианте? (1–12)")
+    await message.answer("📝 Сколько заданий в варианте? (1–12)\nИли нажмите «⬅️ Назад»", reply_markup=back_kb())
     await state.set_state(GenForm.problems)
+
+@dp.message(GenForm.problems, F.text == "⬅️ Назад")
+async def problems_back(message: types.Message, state: FSMContext):
+    await message.answer("📋 Сколько вариантов? (введите число от 1 до 8)", reply_markup=back_kb())
+    await state.set_state(GenForm.variants)
 
 @dp.message(GenForm.problems)
 async def set_problems(message: types.Message, state: FSMContext):
     if not message.text.isdigit() or not (1 <= int(message.text) <= 12):
         return await message.answer("Введите число от 1 до 12.")
     await state.update_data(problems=int(message.text))
-    kb = [[types.KeyboardButton(text="2 в ряд"), types.KeyboardButton(text="1 в ряд")]]
-    await message.answer("📄 Расположение вариантов на листе:", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
+    kb = [[KeyboardButton(text="2 в ряд"), KeyboardButton(text="1 в ряд")], [KeyboardButton(text="⬅️ Назад")]]
+    await message.answer("📄 Расположение вариантов на листе:", reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
     await state.set_state(GenForm.per_row)
+
+@dp.message(GenForm.per_row, F.text == "⬅️ Назад")
+async def per_row_back(message: types.Message, state: FSMContext):
+    await message.answer("📝 Сколько заданий в варианте? (1–12)", reply_markup=back_kb())
+    await state.set_state(GenForm.problems)
 
 @dp.message(GenForm.per_row, F.text.in_(["2 в ряд", "1 в ряд"]))
 async def set_per_row(message: types.Message, state: FSMContext):
     per_row = 2 if message.text == "2 в ряд" else 1
     await state.update_data(per_row=per_row)
-    kb = [[types.KeyboardButton(text="Да"), types.KeyboardButton(text="Нет")]]
-    await message.answer("✅ Включить ответы?", reply_markup=types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
+    kb = [[KeyboardButton(text="Да"), KeyboardButton(text="Нет")], [KeyboardButton(text="⬅️ Назад")]]
+    await message.answer("✅ Включить ответы?", reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
     await state.set_state(GenForm.answers)
+
+@dp.message(GenForm.answers, F.text == "⬅️ Назад")
+async def answers_back(message: types.Message, state: FSMContext):
+    kb = [[KeyboardButton(text="2 в ряд"), KeyboardButton(text="1 в ряд")], [KeyboardButton(text="⬅️ Назад")]]
+    await message.answer("📄 Расположение вариантов на листе:", reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
+    await state.set_state(GenForm.per_row)
 
 @dp.message(GenForm.answers, F.text.in_(["Да", "Нет"]))
 async def set_answers(message: types.Message, state: FSMContext):
     with_answers = message.text == "Да"
     data = await state.get_data()
     await state.clear()
-    await message.answer("⏳ Генерирую контрольную...")
+    msg = await message.answer("⏳ Генерирую контрольную...")
     try:
         pdf_path = generate_pdf(
             data['grade'], data['topic'], data['variants'],
@@ -657,10 +775,12 @@ async def set_answers(message: types.Message, state: FSMContext):
         logging.error(e)
         await message.answer("⚠️ Ошибка генерации. Попробуйте снова.")
     finally:
-        await message.answer("Для новой работы нажмите /start", reply_markup=types.ReplyKeyboardRemove())
+        await message.answer("Выберите действие:", reply_markup=main_kb())
+        await state.set_state(GenForm.grade)
 
+# Общий обработчик "⬅️ Назад" для состояний, где он ещё не обработан
 @dp.message(F.text == "⬅️ Назад")
-async def back(message: types.Message, state: FSMContext):
+async def general_back(message: types.Message, state: FSMContext):
     await state.clear()
     await start(message, state)
 
