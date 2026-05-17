@@ -27,6 +27,7 @@ if not os.path.exists(FONT_PATH):
 # ---------- НАСТРОЙКИ ----------
 TOKEN = "8755532322:AAFnYy-VY4MRh4E3DyzcB5zSaarQvXQjuSA"          # ← замените на реальный токен
 TEMP_DIR = "temp_pdf"
+MATH_DIR = "math"                   # папка с теорией
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # ---------- ИНИЦИАЛИЗАЦИЯ ----------
@@ -394,7 +395,13 @@ class PDF(FPDF):
         for j in range(rows+1):
             self.line(x, y + j*h/rows, x+w, y + j*h/rows)
 
-# ---------- ГЕНЕРАЦИЯ PDF КОНТРОЛЬНОЙ (старая) ----------
+    # Заглушки для рисунков (можно оставить пустыми или убрать вызовы)
+    def draw_triangle_heron(self, x, y, w, h, a, b, c):
+        pass
+    def draw_triangle_right(self, x, y, w, h, a, b):
+        pass
+
+# ---------- ГЕНЕРАЦИЯ PDF КОНТРОЛЬНОЙ ----------
 def generate_pdf(grade: str, topic: str, variants: int, problems: int, per_row: int, with_answers: bool):
     gens = GRADE_TOPICS[grade][topic]
     vars_problems = []
@@ -526,7 +533,7 @@ def generate_ege_variants_pdf(num_variants):
     for v in tg_vals: pdf.cell(col_w, row_h, v, border=1, align='C')
     pdf.ln(5)
 
-    all_tasks = []  # собираем ответы для каждого варианта
+    all_tasks = []
     for var_idx in range(num_variants):
         tasks = []
         for num in range(1, 20):
@@ -629,12 +636,16 @@ class GenForm(StatesGroup):
 class EGEForm(StatesGroup):
     num_variants = State()
 
+class TheoryForm(StatesGroup):
+    task_num = State()
+
 # ---------- КЛАВИАТУРЫ ----------
 def main_kb():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="9 класс"), KeyboardButton(text="10 класс"), KeyboardButton(text="11 класс")],
-            [KeyboardButton(text="🎲 Вариант ЕГЭ")]
+            [KeyboardButton(text="🎲 Вариант ЕГЭ")],
+            [KeyboardButton(text="📖 Теория ЕГЭ")]
         ],
         resize_keyboard=True
     )
@@ -668,6 +679,33 @@ async def ege_start(message: types.Message, state: FSMContext):
     await message.answer("📋 Сколько вариантов сгенерировать? (введите число от 1 до 4)\nИли нажмите «⬅️ Назад»", reply_markup=back_kb())
     await state.set_state(EGEForm.num_variants)
 
+@dp.message(GenForm.grade, F.text == "📖 Теория ЕГЭ")
+async def theory_start(message: types.Message, state: FSMContext):
+    await state.clear()
+    kb = [[KeyboardButton(text=str(i)) for i in range(1, 7)],
+          [KeyboardButton(text=str(i)) for i in range(7, 13)],
+          [KeyboardButton(text="⬅️ Назад")]]
+    await message.answer("Выберите номер задания для теории (1–12):", reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True))
+    await state.set_state(TheoryForm.task_num)
+
+@dp.message(TheoryForm.task_num, F.text == "⬅️ Назад")
+async def theory_back(message: types.Message, state: FSMContext):
+    await state.clear()
+    await start(message, state)
+
+@dp.message(TheoryForm.task_num)
+async def theory_send(message: types.Message, state: FSMContext):
+    if not message.text.isdigit() or not (1 <= int(message.text) <= 12):
+        return await message.answer("Введите число от 1 до 12 или нажмите «⬅️ Назад».")
+    task_num = int(message.text)
+    file_path = os.path.join(MATH_DIR, f"Задание {task_num}.pdf")
+    if not os.path.exists(file_path):
+        await message.answer(f"❌ Файл с теорией для задания {task_num} не найден. Проверьте папку math.")
+    else:
+        await message.answer_document(FSInputFile(file_path), caption=f"📘 Теория по заданию {task_num}")
+    await message.answer("Выберите действие:", reply_markup=main_kb())
+    await state.set_state(GenForm.grade)
+
 @dp.message(EGEForm.num_variants, F.text == "⬅️ Назад")
 async def ege_back(message: types.Message, state: FSMContext):
     await state.clear()
@@ -689,7 +727,7 @@ async def ege_num_variants(message: types.Message, state: FSMContext):
         await message.answer("⚠️ Ошибка генерации. Попробуйте снова.")
     finally:
         await message.answer("Выберите действие:", reply_markup=main_kb())
-        await state.set_state(GenForm.grade)   # возвращаемся в главное меню
+        await state.set_state(GenForm.grade)
 
 # Обработчики тем и параметров контрольной
 @dp.message(GenForm.topic, F.text.in_(sum([list(GRADE_TOPICS[g].keys()) for g in GRADE_TOPICS], [])))
@@ -778,7 +816,6 @@ async def set_answers(message: types.Message, state: FSMContext):
         await message.answer("Выберите действие:", reply_markup=main_kb())
         await state.set_state(GenForm.grade)
 
-# Общий обработчик "⬅️ Назад" для состояний, где он ещё не обработан
 @dp.message(F.text == "⬅️ Назад")
 async def general_back(message: types.Message, state: FSMContext):
     await state.clear()
