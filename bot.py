@@ -698,11 +698,34 @@ async def theory_send(message: types.Message, state: FSMContext):
     if not message.text.isdigit() or not (1 <= int(message.text) <= 12):
         return await message.answer("Введите число от 1 до 12 или нажмите «⬅️ Назад».")
     task_num = int(message.text)
-    file_path = os.path.join(MATH_DIR, f"Задание {task_num}.pdf")
-    if not os.path.exists(file_path):
-        await message.answer(f"❌ Файл с теорией для задания {task_num} не найден. Проверьте папку math.")
+    filename = f"Задание {task_num}.pdf"
+    
+    # Все возможные пути поиска
+    search_dirs = [".", "math", "theory", "pdfs", os.path.expanduser("~/Desktop/math")]
+    found_path = None
+    
+    for d in search_dirs:
+        full = os.path.join(d, filename)
+        if os.path.exists(full):
+            found_path = full
+            break
+    
+    if not found_path:
+        # Попробуем поискать просто по имени в текущей папке
+        if os.path.exists(filename):
+            found_path = filename
+    
+    if not found_path:
+        # Покажем пользователю, где искали
+        search_list = "\n".join([f"  • {os.path.abspath(os.path.join(d, filename))}" for d in search_dirs])
+        await message.answer(
+            f"❌ Файл **{filename}** не найден.\n"
+            f"Проверял здесь:\n{search_list}\n\n"
+            f"Положите файл в ту же папку, где лежит bot.py, и попробуйте снова."
+        )
     else:
-        await message.answer_document(FSInputFile(file_path), caption=f"📘 Теория по заданию {task_num}")
+        await message.answer_document(FSInputFile(found_path), caption=f"📘 Теория по заданию {task_num}")
+    
     await message.answer("Выберите действие:", reply_markup=main_kb())
     await state.set_state(GenForm.grade)
 
